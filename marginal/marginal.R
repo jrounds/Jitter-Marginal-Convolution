@@ -3,6 +3,12 @@ rhinit()
 rhoptions(runner=sprintf("%s/rhipe.runner.sh",Sys.getenv("HOME")))
 
 
+################################################################################################
+# Goal is to round jitter to the 4th digit after the decimal
+# Then count the unique values of jitter that occur in a rate*utilization crossing
+################################################################################################
+
+
 a = list()
 a$ifolder = "/wsc/jxia/queueing/simulation/R.database/SEM/jitter/"
 a$ofolder = "/wsc/jrounds/queueing/marginal/counts"
@@ -138,15 +144,43 @@ ex = rhex(mr, async=TRUE)
 			
 counts = rhread(a$ofolder)
 		
-			
+
 			
 ################################################################################################
 # got counts from the server
 ################################################################################################
 			
+################################################################################################
+# Construct marginal tables and save to hdfs
+################################################################################################
+
 load("marginal.counts.Rdata")
 keys = lapply(counts, function(d) d[[1]])
+keys = do.call("rbind",keys)
 values = lapply(counts, function(d) as.data.frame(d[[2]]))
+#sort these by rate
+order = order(keys$rate,keys$utilization)
+keys = keys[order,]
+values = values[order]
+#add density column
+for(i in seq_along(values)) values[[i]]$density = values[[i]]$count/sum(values[[i]]$count)
+for(v in values) print(summary(v))
+marginals = values
+attr(marginals,"keys") = keys
+key.levels = list()
+key.levels$rate = unique(keys$rate)
+key.levels$utilization = unique(keys$utilization)
+attr(marginals,"key.levels") = key.levels
+
+rhsave(marginals, file= "/wsc/jrounds/marginal/Rdata/marginals.Rdata")
+
+
+
+################################################################################################
+# Plotting
+################################################################################################
+
+
 max = lapply(values, function(v) v$jitter[which.max(v$count)])
 #all 0 which is to be expected
 npackets = lapply(values, function(v) sum(v$count))
@@ -155,16 +189,8 @@ values = lapply(values, function(v) v[-which.max(v$count),])  #remove zero
 max = lapply(values, function(v) v$jitter[which.max(v$count)])
 
 
-#add density column
-for(i in seq_along(values)) values[[i]]$density = values[[i]]$count/sum(values[[i]]$count)
-for(v in values) print(summary(v))
 
-#sort these by rate
-rate = unlist(lapply(keys,function(k) k$rate))
-utilization = unlist(lapply(keys, function(k) k$utilization))
-order = order(rate,utilization)
-keys = keys[order]
-values = values[order]
+
 
 postscript("marginal.ps")
 for(i in seq_along(keys)){
@@ -174,4 +200,7 @@ for(i in seq_along(keys)){
 	plot(v$jitter,v$density, type="l",main=main,xlab="jitter", ylab="density")
 }
 dev.off()
+
+
+
 
